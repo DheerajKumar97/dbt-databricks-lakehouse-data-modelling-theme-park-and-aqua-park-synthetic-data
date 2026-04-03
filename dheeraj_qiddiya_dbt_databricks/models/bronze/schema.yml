@@ -1,0 +1,73 @@
+version: 2
+
+models:
+
+  - name: raw_customers
+    columns:
+      - name: source_customer_id
+        tests:
+          - not_null
+      - name: gender
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['M', 'F']
+      - name: loyalty_points
+        tests:
+          - not_null
+      - name: app_installed
+        tests:
+          - accepted_values:
+              values: ['True', 'False']
+      - name: email_opt_in
+        tests:
+          - accepted_values:
+              values: ['Y', 'N']
+      - name: sms_opt_in
+        tests:
+          - accepted_values:
+              values: ['Y', 'N']
+
+  - name: raw_gate_events
+    columns:
+      - name: source_event_id
+        tests:
+          - not_null
+
+  - name: raw_products
+    columns:
+      - name: product_code
+        tests:
+          - not_null
+
+  - name: raw_ride_operations
+    columns:
+      - name: source_record_id
+        tests:
+          - not_null
+
+  - name: raw_staff
+    columns:
+      - name: source_employee_id
+        tests:
+          - not_null
+
+  - name: raw_transactions
+    columns:
+      - name: source_transaction_id
+        tests:
+          - not_null
+
+  - name: raw_feedback
+    columns:
+      - name: source_feedback_id
+        tests:
+          - not_null
+
+  - name: raw_weather
+    columns:
+      - name: park_code
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['SF', 'AQ']

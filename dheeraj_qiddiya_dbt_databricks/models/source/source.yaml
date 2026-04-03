@@ -1,0 +1,23 @@
+sources:
+  - name: landing_zone
+    database: edw_dev
+    schema: landing_zone
+    tables:
+      - name: aq_raw_customers
+      - name: aq_raw_feedback
+      - name: aq_raw_gate_events
+      - name: aq_raw_master_data
+      - name: aq_raw_products
+      - name: aq_raw_ride_operations
+      - name: aq_raw_staff
+      - name: aq_raw_transactions
+      - name: aq_raw_weather
+      - name: sf_raw_customers
+      - name: sf_raw_feedback
+      - name: sf_raw_gate_events
+      - name: sf_raw_master_data
+      - name: sf_raw_products
+      - name: sf_raw_ride_operations
+      - name: sf_raw_staff
+      - name: sf_raw_transactions
+      - name: sf_raw_weather
