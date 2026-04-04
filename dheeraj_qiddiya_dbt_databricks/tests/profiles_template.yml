@@ -1,0 +1,11 @@
+dheeraj_qiddiya_dbt_databricks:
+  outputs:
+    dev:
+      catalog: edw_dev
+      host: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+      http_path: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+      schema: default
+      threads: 1
+      token: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+      type: databricks
+  target: dev
