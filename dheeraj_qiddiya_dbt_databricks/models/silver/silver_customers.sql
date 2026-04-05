@@ -40,7 +40,7 @@ deduped_raw_customers AS (
                 PARTITION BY source_customer_id, source_system
                 ORDER BY TRY_CAST(record_created_at AS TIMESTAMP) DESC
             ) AS rn
-        FROM bronze_raw_customers  
+        FROM bronze_raw_customers
     )
     WHERE rn = 1
 
@@ -101,22 +101,20 @@ cast_and_clean AS (
         -- Source timestamp
         TRY_CAST(record_created_at AS TIMESTAMP)                    AS source_created_at
 
-    FROM deduped_raw_customers      
+    FROM deduped_raw_customers
 
 ),
 
-silver_customers AS (          
+silver_customers AS (
 
     SELECT
 
-        -- Surrogate key
+        -- Surrogate key (UUID format) — keyed on source_customer_id only
         REGEXP_REPLACE(
-            {{ dbt_utils.generate_surrogate_key(
-                ['source_customer_id']
-            ) }},
+            {{ dbt_utils.generate_surrogate_key(['source_customer_id']) }},
             '^([0-9a-f]{8})([0-9a-f]{4})([0-9a-f]{4})([0-9a-f]{4})([0-9a-f]{12})$',
             '$1-$2-$3-$4-$5'
-        )                                                               AS customer_sk,
+        )                                                           AS customer_sk,
 
         -- Identity
         source_customer_id,
@@ -134,7 +132,7 @@ silver_customers AS (
         nationality,
         date_of_birth,
         DATEDIFF(
-            year,       
+            year,
             date_of_birth,
             CURRENT_DATE()
         )                                                           AS age,
@@ -152,7 +150,7 @@ silver_customers AS (
         -- Registration
         registration_date,
         DATEDIFF(
-            day,              
+            day,
             registration_date,
             CURRENT_DATE()
         )                                                           AS tenure_days,
