@@ -1,37 +1,7 @@
 """
 ==========================================================================
-Qiddiya Synthetic Data Generator — Enterprise Bronze Layer (v4.0)
+Qiddiya Synthetic Data Generator — Enterprise Landing Zone Layer (v4.1)
 DATABRICKS SQL UPLOAD (databricks-sql-connector — no SQLAlchemy dialect)
-==========================================================================
-
-Installation:
-    pip install databricks-sql-connector pandas numpy faker pyarrow
-
-Usage:
-    export DATABRICKS_TOKEN="your_personal_access_token"
-    python qiddiya_data_generator.py
-
-Generation Order (Enforced):
-  Phase A — Master/Reference Data:
-    1. raw_staff        → staff_ids pool
-    2. raw_customers    → customer_ids pool
-    3. raw_products     → product_codes pool
-
-  Phase B — Transactional Data (consumes pools):
-    4. raw_transactions
-    5. raw_gate_events
-    6. raw_ride_operations
-    7. raw_feedback
-    8. raw_weather
-    9. raw_master_data
-
-Output Tables (9 per park = 18 total):
-  sf_raw_customers, sf_raw_staff, sf_raw_products, sf_raw_transactions,
-  sf_raw_gate_events, sf_raw_ride_operations, sf_raw_feedback,
-  sf_raw_weather, sf_raw_master_data
-  (and aq_ equivalents)
-
-Destination: Databricks edw_dev.bronze
 ==========================================================================
 """
 
@@ -44,6 +14,9 @@ import numpy as np
 import pandas as pd
 from faker import Faker
 from databricks import sql
+from dotenv import load_dotenv
+
+load_dotenv()
 
 warnings.filterwarnings("ignore")
 fake = Faker()
@@ -53,9 +26,8 @@ fake = Faker()
 DATABRICKS_SERVER_HOSTNAME = "dbc-a66f10d7-d7e6.cloud.databricks.com"
 DATABRICKS_HTTP_PATH       = "/sql/1.0/warehouses/2d8c6692f8052659"
 DATABRICKS_CATALOG         = "edw_dev"
-DATABRICKS_SCHEMA          = "bronze"
+DATABRICKS_SCHEMA          = "landing_zone"
 
-# Token loaded from environment variable — never hardcode credentials
 DATABRICKS_TOKEN = os.environ.get("DATABRICKS_TOKEN", "")
 
 COUNTS = {
@@ -81,7 +53,6 @@ FK_SAFE_COLUMNS = frozenset({
     "source_record_id", "source_feedback_id", "is_duplicate",
 })
 
-# Databricks dtype → SQL type mapping
 DTYPE_MAP = {
     "int64":          "BIGINT",
     "int32":          "INT",
@@ -100,7 +71,6 @@ DTYPE_MAP = {
 # ── HELPER FUNCTIONS ─────────────────────────────────────────────────────
 
 def get_random_dates(n_rows: int) -> np.ndarray:
-    """Return n_rows random dates weighted for KSA weekends (Fri/Sat)."""
     all_dates = [DATE_START + timedelta(days=x) for x in range(DAYS_RANGE)]
     weights   = [1.3 if d.weekday() in (4, 5) else 1.0 for d in all_dates]
     total_w   = sum(weights)
@@ -109,7 +79,6 @@ def get_random_dates(n_rows: int) -> np.ndarray:
 
 
 def generate_ids(prefix: str, n_rows: int) -> list:
-    """Generate zero-padded sequential IDs: PREFIX-0000001 … PREFIX-NNNNNNN."""
     return [f"{prefix}-{i:07d}" for i in range(1, n_rows + 1)]
 
 
@@ -117,9 +86,27 @@ def batch_id() -> str:
     return f"BATCH-{uuid.uuid4().hex[:8].upper()}"
 
 
+def _sanitize_fk_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Ensure FK columns never contain string representations of NULL.
+    Called after any concat/copy operation that might introduce 'None' strings.
+    """
+    for col in FK_SAFE_COLUMNS:
+        if col in df.columns:
+            df[col] = df[col].replace({"None": None, "nan": None, "NaN": None})
+            # Also convert the string "null" (case-insensitive)
+            mask = df[col].apply(lambda x: isinstance(x, str) and x.lower() == "null")
+            df.loc[mask, col] = None
+    return df
+
+
 def inject_data_quality_issues(df: pd.DataFrame, table_name: str) -> pd.DataFrame:
     """
     Inject controlled data quality issues while PROTECTING FK columns.
+
+    FIX v4.1: After concat of duplicate rows, FK columns are explicitly
+    re-sanitized so that Python's "None" string never appears in customer_id,
+    product_code, cashier_id, etc.
     """
     n = len(df)
 
@@ -134,6 +121,10 @@ def inject_data_quality_issues(df: pd.DataFrame, table_name: str) -> pd.DataFram
         dupes = df.sample(n_dupes, random_state=42).copy()
         dupes["is_duplicate"] = True
         df = pd.concat([df, dupes], ignore_index=True)
+        # ── FIX: Re-sanitize FK columns after concat ──────────────────────
+        # pd.concat can turn Python None into the string "None" in object
+        # columns; this ensures referential integrity is never broken.
+        df = _sanitize_fk_columns(df)
 
     # 3. Boolean format inconsistencies (FK-safe columns excluded)
     bool_cols = [
@@ -157,7 +148,10 @@ def inject_data_quality_issues(df: pd.DataFrame, table_name: str) -> pd.DataFram
 def transform_to_aq(sf_df: pd.DataFrame) -> pd.DataFrame:
     """
     Derive AQ dataset by replacing 'SF-' prefix with 'AQ-' in all string columns.
-    park_code is handled explicitly ('SF' → 'AQ').
+
+    FIX v4.1: After the string replacement, _sanitize_fk_columns() is called
+    again to clear any residual "None" / "nan" strings that pandas may have
+    introduced during the copy → str conversion chain.
     """
     print("    Transforming SF → AQ...")
     aq_df = sf_df.copy()
@@ -175,15 +169,15 @@ def transform_to_aq(sf_df: pd.DataFrame) -> pd.DataFrame:
     if "park_code" in aq_df.columns:
         aq_df["park_code"] = "AQ"
 
+    # ── FIX: Final FK sanitization pass after all string operations ───────
+    aq_df = _sanitize_fk_columns(aq_df)
+
     return aq_df
 
 
 # ── DATA GENERATOR ───────────────────────────────────────────────────────
 
 class QiddiyaDataGenerator:
-    """
-    Generates synthetic Bronze-layer data with enforced referential integrity.
-    """
 
     def __init__(self):
         self.customer_ids:    list = []
@@ -200,8 +194,6 @@ class QiddiyaDataGenerator:
         self.gate_pool      = [f"G-{i:02d}" for i in range(1, 20)]
         self.gate_locations = ["Main Entrance", "VIP Entrance", "Staff Gate"]
         self.zone_codes     = ["Z01", "Z02", "Z03"]
-
-    # ── Master Tables ────────────────────────────────────────────────────
 
     def generate_staff(self, n_rows: int) -> pd.DataFrame:
         print(f"  [1/9] Generating {n_rows:,} Staff (master)...")
@@ -289,8 +281,6 @@ class QiddiyaDataGenerator:
         self.product_codes   = self.product_pool_df["product_code"].tolist()
         return self.product_pool_df
 
-    # ── Transactional Tables ─────────────────────────────────────────────
-
     def generate_transactions(self, n_rows: int) -> pd.DataFrame:
         print(f"  [4/9] Generating {n_rows:,} Transactions...")
         assert self.customer_ids,  "FATAL: customer_ids pool empty!"
@@ -299,12 +289,8 @@ class QiddiyaDataGenerator:
 
         dates = get_random_dates(n_rows)
 
-        cust_choices = np.random.choice(self.customer_ids, n_rows)
-        is_anonymous = np.random.random(n_rows) < 0.05
-        customer_ids = [
-            None if anon else cid
-            for cid, anon in zip(cust_choices, is_anonymous)
-        ]
+        # All transactions linked to a registered customer — no anonymous guests
+        customer_ids = np.random.choice(self.customer_ids, n_rows)
 
         prod_idx   = np.random.randint(0, len(self.product_pool_df), n_rows)
         prods      = self.product_pool_df.iloc[prod_idx].reset_index(drop=True)
@@ -363,6 +349,9 @@ class QiddiyaDataGenerator:
         df["batch_id"]            = batch_id()
         df["pipeline_name"]       = "pos_to_bronze"
         df["validation_status"]   = "PENDING"
+
+        # ── FIX: Final sanitization pass on the completed transactions df ─
+        df = _sanitize_fk_columns(df)
         return df
 
     def generate_gate_events(self, n_rows: int) -> pd.DataFrame:
@@ -432,7 +421,7 @@ class QiddiyaDataGenerator:
         print(f"  [7/9] Generating {n_rows:,} Feedback rows...")
         assert self.customer_ids, "FATAL: customer_ids pool empty!"
 
-        dates              = get_random_dates(n_rows)
+        dates               = get_random_dates(n_rows)
         has_complaint_flags = np.random.random(n_rows) < 0.1
 
         df = pd.DataFrame({
@@ -575,7 +564,6 @@ def validate_referential_integrity(data_map: dict) -> bool:
 # ── DATABRICKS UPLOADER ───────────────────────────────────────────────────
 
 def _infer_ddl(df: pd.DataFrame) -> str:
-    """Build a CREATE TABLE column definition string from a DataFrame."""
     parts = []
     for col, dtype in zip(df.columns, df.dtypes):
         sql_type = DTYPE_MAP.get(str(dtype), "STRING")
@@ -584,7 +572,6 @@ def _infer_ddl(df: pd.DataFrame) -> str:
 
 
 def _sanitize_value(v):
-    """Convert Python/numpy scalars to types safe for Databricks parameterised queries."""
     if v is None:
         return None
     if isinstance(v, float) and np.isnan(v):
@@ -597,13 +584,12 @@ def _sanitize_value(v):
         return bool(v)
     if isinstance(v, pd.Timestamp):
         return str(v)
-    if hasattr(v, "isoformat"):        # date / datetime
+    if hasattr(v, "isoformat"):
         return str(v)
     return v
 
 
 def _format_sql_value(v):
-    """Format sanitized value into Databricks SQL string syntax."""
     if v is None:
         return "NULL"
     if isinstance(v, str):
@@ -614,16 +600,6 @@ def _format_sql_value(v):
 
 
 def upload_dataframe(df: pd.DataFrame, table_name: str) -> bool:
-    """
-    Upload a DataFrame to Databricks using databricks-sql-connector.
-
-    Strategy:
-      1. DROP TABLE IF EXISTS
-      2. CREATE TABLE with inferred DDL
-      3. INSERT rows via executemany in chunks of 1 000
-
-    No SQLAlchemy dialect required.
-    """
     if df is None or len(df) == 0:
         print(f"  ⚠  Skipped {table_name} — empty DataFrame.")
         return True
@@ -632,15 +608,13 @@ def upload_dataframe(df: pd.DataFrame, table_name: str) -> bool:
         print("  ✗  DATABRICKS_TOKEN environment variable is not set. Aborting upload.")
         return False
 
-    # Add surrogate bronze_id as the first column
     upload = df.copy()
     upload.insert(0, "bronze_id", range(1, len(upload) + 1))
 
     full_table   = f"`{DATABRICKS_CATALOG}`.`{DATABRICKS_SCHEMA}`.`{table_name}`"
     cols_ddl     = _infer_ddl(upload)
     n_cols       = len(upload.columns)
-    placeholders = ", ".join(["?"] * n_cols)
-    chunk_size   = 1_000
+    chunk_size   = 2_000
 
     print(
         f"\n  Uploading {table_name} "
@@ -657,24 +631,21 @@ def upload_dataframe(df: pd.DataFrame, table_name: str) -> bool:
                 cursor.execute(f"USE CATALOG `{DATABRICKS_CATALOG}`")
                 cursor.execute(f"USE SCHEMA `{DATABRICKS_SCHEMA}`")
 
-                # Recreate table
                 cursor.execute(f"DROP TABLE IF EXISTS {full_table}")
                 cursor.execute(f"CREATE TABLE {full_table} ({cols_ddl})")
 
-                # Chunked insert
-                chunk_size   = 2_000
                 total_chunks = (len(upload) + chunk_size - 1) // chunk_size
                 for chunk_num, start in enumerate(range(0, len(upload), chunk_size), 1):
                     chunk = upload.iloc[start : start + chunk_size]
-                    
+
                     val_strings = []
                     for row in chunk.itertuples(index=False, name=None):
                         row_vals = [_format_sql_value(_sanitize_value(v)) for v in row]
                         val_strings.append("(" + ", ".join(row_vals) + ")")
-                        
+
                     val_block = ", ".join(val_strings)
                     cursor.execute(f"INSERT INTO {full_table} VALUES {val_block}")
-                    
+
                     if chunk_num % 5 == 0 or chunk_num == total_chunks:
                         print(
                             f"    chunk {chunk_num}/{total_chunks} "
@@ -693,7 +664,7 @@ def upload_dataframe(df: pd.DataFrame, table_name: str) -> bool:
 
 def main():
     print("=" * 70)
-    print("  Qiddiya Synthetic Data Generator v4.0")
+    print("  Qiddiya Synthetic Data Generator v4.1")
     print(f"  Target : Databricks {DATABRICKS_CATALOG}.{DATABRICKS_SCHEMA}")
     print(f"  Token  : {'SET ✓' if DATABRICKS_TOKEN else 'NOT SET ✗  (export DATABRICKS_TOKEN=...)'}")
     print("=" * 70)
@@ -705,7 +676,6 @@ def main():
 
     gen = QiddiyaDataGenerator()
 
-    # ── Phase 1: Master tables (populate pools) ───────────────────────────
     print("\n[Phase 1] Generating SF Master Data...")
     data_map = {
         "staff":     gen.generate_staff(COUNTS["staff"]),
@@ -713,7 +683,6 @@ def main():
         "products":  gen.generate_products(),
     }
 
-    # ── Phase 2: Transactional tables ─────────────────────────────────────
     print("\n[Phase 2] Generating SF Transactional Data...")
     data_map["transactions"] = gen.generate_transactions(COUNTS["transactions"])
     data_map["gate_events"]  = gen.generate_gate_events(COUNTS["gate_events"])
@@ -722,31 +691,25 @@ def main():
     data_map["weather"]      = gen.generate_weather(COUNTS["weather"])
     data_map["master_data"]  = gen.generate_master_data(COUNTS["master_data"])
 
-    # ── Phase 3: Baseline integrity check ─────────────────────────────────
     print("\n[Phase 3] Pre-Anomaly Referential Integrity Check...")
     if not validate_referential_integrity(data_map):
         print("\n  ⚠️  CRITICAL: Baseline integrity failed. Aborting.")
         return
 
-    # ── Phase 4: Save clean copy BEFORE anomaly injection ─────────────────
     clean_data_map = {k: v.copy() for k, v in data_map.items()}
 
-    # ── Phase 5: Inject SF anomalies ──────────────────────────────────────
     print("\n[Phase 4] Injecting SF Anomalies (FK columns protected)...")
     for key in data_map:
         data_map[key] = inject_data_quality_issues(data_map[key], key)
 
-    # ── Phase 6: Post-anomaly integrity check ─────────────────────────────
     print("\n[Phase 5] Post-Anomaly Referential Integrity Check...")
     if not validate_referential_integrity(data_map):
         print("\n  ⚠️  CRITICAL: Anomaly injection corrupted FK integrity. Aborting.")
         return
 
-    # ── Phase 7: Transform clean copy → AQ ────────────────────────────────
     print("\n[Phase 6] Generating AQ Data (from clean SF copy)...")
     aq_data_map = {key: transform_to_aq(df) for key, df in clean_data_map.items()}
 
-    # ── Phase 8: Inject AQ anomalies + validate ───────────────────────────
     print("\n[Phase 7] Injecting AQ Anomalies...")
     for key in aq_data_map:
         aq_data_map[key] = inject_data_quality_issues(aq_data_map[key], key)
@@ -756,11 +719,9 @@ def main():
         print("\n  ⚠️  CRITICAL: AQ integrity failed. Aborting.")
         return
 
-    # ── Phase 9: Upload all 18 tables ─────────────────────────────────────
     print("\n[Phase 9] Uploading to Databricks...")
 
     table_mapping = [
-        # (data_map key,  Databricks table suffix)
         ("staff",        "raw_staff"),
         ("customers",    "raw_customers"),
         ("products",     "raw_products"),
@@ -780,7 +741,6 @@ def main():
         results[sf_name] = upload_dataframe(data_map[key],    sf_name)
         results[aq_name] = upload_dataframe(aq_data_map[key], aq_name)
 
-    # ── Summary ────────────────────────────────────────────────────────────
     print("\n" + "=" * 70)
     passed = [t for t, ok in results.items() if ok]
     failed = [t for t, ok in results.items() if not ok]
