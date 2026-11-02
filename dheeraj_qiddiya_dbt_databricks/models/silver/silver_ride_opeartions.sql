@@ -14,8 +14,8 @@ WITH bronze_raw_ride_operations AS (
     FROM {{ ref('raw_ride_operations') }}
 
     {% if is_incremental() %}
-        WHERE TRY_CAST(ingestion_timestamp AS TIMESTAMP) > (
-            SELECT MAX(silver_loaded_at) FROM {{ this }}
+        WHERE bronze_loaded_at > (
+            SELECT COALESCE(MAX(silver_loaded_at), TIMESTAMP('1900-01-01')) FROM {{ this }}
         )
     {% endif %}
 
@@ -75,7 +75,10 @@ cleaned_ride_operations AS (
             WHEN LOWER(TRIM(is_duplicate)) = 'true'  THEN TRUE
             WHEN LOWER(TRIM(is_duplicate)) = 'false' THEN FALSE
             ELSE NULL
-        END                                                      AS is_duplicate
+        END                                                      AS is_duplicate,
+
+        COALESCE(is_deleted, FALSE)                              AS is_deleted,
+        deleted_at
 
     FROM deduplicated_ride_operations
 
@@ -146,11 +149,33 @@ silver_ride_operations AS (
         validation_status,
         is_duplicate,
 
+        is_deleted,
+        deleted_at,
+
         CURRENT_TIMESTAMP()                                      AS silver_loaded_at
 
     FROM cleaned_ride_operations
 
 )
 
-SELECT *
-FROM silver_ride_operations
+{% if is_incremental() %}
+, hard_deleted_in_bronze AS (
+
+    SELECT
+        t.* EXCEPT (is_deleted, deleted_at, silver_loaded_at),
+        TRUE                AS is_deleted,
+        CURRENT_TIMESTAMP() AS deleted_at,
+        CURRENT_TIMESTAMP() AS silver_loaded_at
+    FROM {{ this }} t
+    LEFT ANTI JOIN {{ ref('raw_ride_operations') }} b
+        ON t.source_record_id = b.source_record_id
+    WHERE COALESCE(t.is_deleted, FALSE) = FALSE
+
+)
+{% endif %}
+
+SELECT * FROM silver_ride_operations
+{% if is_incremental() %}
+UNION ALL
+SELECT * FROM hard_deleted_in_bronze
+{% endif %}

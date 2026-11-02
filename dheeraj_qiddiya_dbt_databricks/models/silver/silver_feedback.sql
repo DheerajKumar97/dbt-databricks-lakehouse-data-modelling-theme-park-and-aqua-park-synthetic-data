@@ -14,8 +14,8 @@ WITH bronze_raw_feedback AS (
     FROM {{ ref('raw_feedback') }}
 
     {% if is_incremental() %}
-        WHERE TRY_CAST(ingestion_timestamp AS TIMESTAMP) > (
-            SELECT MAX(silver_loaded_at) FROM {{ this }}
+        WHERE bronze_loaded_at > (
+            SELECT COALESCE(MAX(silver_loaded_at), TIMESTAMP('1900-01-01')) FROM {{ this }}
         )
     {% endif %}
 
@@ -77,7 +77,7 @@ cleaned_raw_feedback AS (
             ELSE NULL
         END                                                         AS staff_score,
 
-        -- Boolean: has_complaint → 'true'/'false'
+        -- Boolean: has_complaint -> 'true'/'false'
         CASE
             WHEN LOWER(TRIM(has_complaint)) = 'true'  THEN TRUE
             WHEN LOWER(TRIM(has_complaint)) = 'false' THEN FALSE
@@ -92,7 +92,11 @@ cleaned_raw_feedback AS (
         END                                                         AS complaint_text,
 
         -- Source timestamp
-        TRY_CAST(ingestion_timestamp AS TIMESTAMP)                  AS source_ingested_at
+        TRY_CAST(ingestion_timestamp AS TIMESTAMP)                  AS source_ingested_at,
+
+        -- Soft delete tracking from Bronze
+        COALESCE(is_deleted, FALSE)                                 AS is_deleted,
+        deleted_at
 
     FROM deduped_raw_feedback
 
@@ -103,18 +107,18 @@ silver_feedback AS (
     SELECT
 
         -- Surrogate key (silver PK)
-            REGEXP_REPLACE(
-                CAST({{ dbt_utils.generate_surrogate_key(['source_feedback_id']) }} AS STRING),
-                '^([0-9a-f]{8})([0-9a-f]{4})([0-9a-f]{4})([0-9a-f]{4})([0-9a-f]{12})$',
-                '$1-$2-$3-$4-$5'
-            ) AS feedback_sk,
+        REGEXP_REPLACE(
+            CAST({{ dbt_utils.generate_surrogate_key(['source_feedback_id']) }} AS STRING),
+            '^([0-9a-f]{8})([0-9a-f]{4})([0-9a-f]{4})([0-9a-f]{4})([0-9a-f]{12})$',
+            '$1-$2-$3-$4-$5'
+        ) AS feedback_sk,
 
-        -- Customer surrogate key (FK → silver_customers)
-            REGEXP_REPLACE(
-                CAST({{ dbt_utils.generate_surrogate_key(['source_customer_id']) }} AS STRING),
-                '^([0-9a-f]{8})([0-9a-f]{4})([0-9a-f]{4})([0-9a-f]{4})([0-9a-f]{12})$',
-                '$1-$2-$3-$4-$5'
-            ) AS customer_sk,
+        -- Customer surrogate key (FK -> silver_customers)
+        REGEXP_REPLACE(
+            CAST({{ dbt_utils.generate_surrogate_key(['source_customer_id']) }} AS STRING),
+            '^([0-9a-f]{8})([0-9a-f]{4})([0-9a-f]{4})([0-9a-f]{4})([0-9a-f]{12})$',
+            '$1-$2-$3-$4-$5'
+        ) AS customer_sk,
 
         -- Identity
         source_feedback_id,
@@ -161,6 +165,10 @@ silver_feedback AS (
         -- Lineage
         source_ingested_at,
 
+        -- Soft delete tracking
+        is_deleted,
+        deleted_at,
+
         -- Silver audit
         CURRENT_TIMESTAMP()                                         AS silver_loaded_at
 
@@ -168,4 +176,24 @@ silver_feedback AS (
 
 )
 
+{% if is_incremental() %}
+, hard_deleted_in_bronze AS (
+
+    SELECT
+        t.* EXCEPT (is_deleted, deleted_at, silver_loaded_at),
+        TRUE                AS is_deleted,
+        CURRENT_TIMESTAMP() AS deleted_at,
+        CURRENT_TIMESTAMP() AS silver_loaded_at
+    FROM {{ this }} t
+    LEFT ANTI JOIN {{ ref('raw_feedback') }} b
+        ON t.source_feedback_id = b.source_feedback_id
+    WHERE COALESCE(t.is_deleted, FALSE) = FALSE
+
+)
+{% endif %}
+
 SELECT * FROM silver_feedback
+{% if is_incremental() %}
+UNION ALL
+SELECT * FROM hard_deleted_in_bronze
+{% endif %}

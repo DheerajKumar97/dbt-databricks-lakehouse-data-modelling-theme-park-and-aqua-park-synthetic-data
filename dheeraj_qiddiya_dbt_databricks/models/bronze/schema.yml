@@ -7,6 +7,10 @@ models:
       - name: source_customer_id
         tests:
           - not_null
+          - unique
+      - name: record_created_at
+        tests:
+          - not_null
       - name: gender
         tests:
           - not_null
@@ -27,10 +31,20 @@ models:
         tests:
           - accepted_values:
               values: ['Y', 'N']
+      - name: is_deleted
+        tests:
+          - not_null
 
   - name: raw_gate_events
     columns:
       - name: source_event_id
+        tests:
+          - not_null
+          - unique
+      - name: ingestion_timestamp
+        tests:
+          - not_null
+      - name: is_deleted
         tests:
           - not_null
 
@@ -39,10 +53,24 @@ models:
       - name: product_code
         tests:
           - not_null
+          - unique
+      - name: ingestion_timestamp
+        tests:
+          - not_null
+      - name: is_deleted
+        tests:
+          - not_null
 
   - name: raw_ride_operations
     columns:
       - name: source_record_id
+        tests:
+          - not_null
+          - unique
+      - name: ingestion_timestamp
+        tests:
+          - not_null
+      - name: is_deleted
         tests:
           - not_null
 
@@ -51,10 +79,24 @@ models:
       - name: source_employee_id
         tests:
           - not_null
+          - unique
+      - name: ingestion_timestamp
+        tests:
+          - not_null
+      - name: is_deleted
+        tests:
+          - not_null
 
   - name: raw_transactions
     columns:
       - name: source_transaction_id
+        tests:
+          - not_null
+          - unique
+      - name: ingestion_timestamp
+        tests:
+          - not_null
+      - name: is_deleted
         tests:
           - not_null
 
@@ -63,11 +105,45 @@ models:
       - name: source_feedback_id
         tests:
           - not_null
+          - unique
+      - name: ingestion_timestamp
+        tests:
+          - not_null
+      - name: is_deleted
+        tests:
+          - not_null
 
   - name: raw_weather
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns:
+            - park_code
+            - poll_datetime
     columns:
       - name: park_code
         tests:
           - not_null
           - accepted_values:
               values: ['SF', 'AQ']
+      - name: poll_datetime
+        tests:
+          - not_null
+      - name: ingestion_timestamp
+        tests:
+          - not_null
+      - name: is_deleted
+        tests:
+          - not_null
+
+  - name: raw_master_data
+    columns:
+      - name: source_record_id
+        tests:
+          - not_null
+          - unique
+      - name: ingestion_timestamp
+        tests:
+          - not_null
+      - name: is_deleted
+        tests:
+          - not_null

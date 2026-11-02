@@ -1,4 +1,20 @@
-<<<<<<< HEAD
+# ==========================================================================
+# Project-specific (qiddiya_dbt)
+# ==========================================================================
+
+# Secrets - never commit
+.env
+*.env
+databricks_access_token.txt
+profiles.yml
+
+# dbt generated artifacts
+target/
+dbt_packages/
+logs/
+*.log
+
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
@@ -212,15 +228,3 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
-=======
-# Python-generated files
-__pycache__/
-*.py[oc]
-build/
-dist/
-wheels/
-*.egg-info
-
-# Virtual environments
-.venv
->>>>>>> 0751f83 (initial commit)

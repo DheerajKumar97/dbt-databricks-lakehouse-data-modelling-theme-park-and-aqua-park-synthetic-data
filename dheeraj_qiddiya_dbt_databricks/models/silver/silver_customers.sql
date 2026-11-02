@@ -14,21 +14,12 @@ WITH bronze_raw_customers AS (
     FROM {{ ref('raw_customers') }}
 
     {% if is_incremental() %}
-        WHERE TRY_CAST(ingestion_timestamp AS TIMESTAMP) > (
-            SELECT MAX(silver_loaded_at) FROM {{ this }}
+        WHERE bronze_loaded_at > (
+            SELECT COALESCE(MAX(silver_loaded_at), TIMESTAMP('1900-01-01')) FROM {{ this }}
         )
     {% endif %}
 
 ),
-
-{# filtered_raw_customers AS (
-
-    SELECT *
-    FROM bronze_raw_customers
-    WHERE UPPER(TRIM(validation_status)) = 'VALID'
-      AND UPPER(TRIM(cdc_operation))    != 'DELETE'
-
-), #}
 
 deduped_raw_customers AS (
 
@@ -40,7 +31,7 @@ deduped_raw_customers AS (
                 PARTITION BY source_customer_id, source_system
                 ORDER BY TRY_CAST(record_created_at AS TIMESTAMP) DESC
             ) AS rn
-        FROM bronze_raw_customers
+        FROM bronze_raw_customers  
     )
     WHERE rn = 1
 
@@ -78,14 +69,14 @@ cast_and_clean AS (
         -- Registration
         TRY_CAST(registration_date AS DATE)                         AS registration_date,
 
-        -- Boolean: app_installed → 'True'/'False'
+        -- Boolean: app_installed -> 'True'/'False'
         CASE
             WHEN LOWER(TRIM(app_installed)) = 'true'  THEN TRUE
             WHEN LOWER(TRIM(app_installed)) = 'false' THEN FALSE
             ELSE NULL
         END                                                         AS app_installed,
 
-        -- Boolean: opt-ins → 'Y'/'N'
+        -- Boolean: opt-ins -> 'Y'/'N'
         CASE
             WHEN UPPER(TRIM(email_opt_in)) = 'Y' THEN TRUE
             WHEN UPPER(TRIM(email_opt_in)) = 'N' THEN FALSE
@@ -99,22 +90,32 @@ cast_and_clean AS (
         END                                                         AS sms_opt_in,
 
         -- Source timestamp
-        TRY_CAST(record_created_at AS TIMESTAMP)                    AS source_created_at
+        TRY_CAST(record_created_at AS TIMESTAMP)                    AS source_created_at,
 
-    FROM deduped_raw_customers
+        -- Soft delete tracking from Bronze
+        CASE
+            WHEN COALESCE(is_deleted, FALSE) = TRUE
+              OR UPPER(TRIM(cdc_operation)) = 'DELETE' THEN TRUE
+            ELSE FALSE
+        END                                                         AS is_deleted,
+        deleted_at
+
+    FROM deduped_raw_customers      
 
 ),
 
-silver_customers AS (
+silver_customers AS (          
 
     SELECT
 
-        -- Surrogate key (UUID format) — keyed on source_customer_id only
+        -- Surrogate key
         REGEXP_REPLACE(
-            {{ dbt_utils.generate_surrogate_key(['source_customer_id']) }},
+            {{ dbt_utils.generate_surrogate_key(
+                ['source_customer_id']
+            ) }},
             '^([0-9a-f]{8})([0-9a-f]{4})([0-9a-f]{4})([0-9a-f]{4})([0-9a-f]{12})$',
             '$1-$2-$3-$4-$5'
-        )                                                           AS customer_sk,
+        )                                                               AS customer_sk,
 
         -- Identity
         source_customer_id,
@@ -132,7 +133,7 @@ silver_customers AS (
         nationality,
         date_of_birth,
         DATEDIFF(
-            year,
+            year,       
             date_of_birth,
             CURRENT_DATE()
         )                                                           AS age,
@@ -150,7 +151,7 @@ silver_customers AS (
         -- Registration
         registration_date,
         DATEDIFF(
-            day,
+            day,              
             registration_date,
             CURRENT_DATE()
         )                                                           AS tenure_days,
@@ -168,6 +169,10 @@ silver_customers AS (
         -- Lineage
         source_created_at,
 
+        -- Soft delete tracking (retained up to Silver)
+        is_deleted,
+        deleted_at,
+
         -- Silver audit
         CURRENT_TIMESTAMP()                                         AS silver_loaded_at
 
@@ -175,4 +180,29 @@ silver_customers AS (
 
 )
 
+{% if is_incremental() %}
+, hard_deleted_in_bronze AS (
+
+    SELECT
+        t.* EXCEPT (is_deleted, deleted_at, silver_loaded_at),
+        TRUE                AS is_deleted,
+        CURRENT_TIMESTAMP() AS deleted_at,
+        CURRENT_TIMESTAMP() AS silver_loaded_at
+    FROM {{ this }} t
+    LEFT ANTI JOIN {{ ref('raw_customers') }} b
+        ON t.source_customer_id = b.source_customer_id
+    WHERE COALESCE(t.is_deleted, FALSE) = FALSE
+
+)
+{% endif %}
+
 SELECT * FROM silver_customers
+{% if is_incremental() %}
+UNION ALL
+SELECT * FROM hard_deleted_in_bronze
+{% endif %}
+
+{% if is_incremental() %}
+UNION ALL
+SELECT * FROM hard_deleted_in_bronze
+{% endif %}

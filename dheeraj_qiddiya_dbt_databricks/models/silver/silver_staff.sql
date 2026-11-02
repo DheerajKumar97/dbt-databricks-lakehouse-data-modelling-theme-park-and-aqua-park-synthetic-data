@@ -14,8 +14,8 @@ WITH bronze_raw_staff AS (
     FROM {{ ref('raw_staff') }}
 
     {% if is_incremental() %}
-        WHERE TRY_CAST(ingestion_timestamp AS TIMESTAMP) > (
-            SELECT MAX(silver_loaded_at) FROM {{ this }}
+        WHERE bronze_loaded_at > (
+            SELECT COALESCE(MAX(silver_loaded_at), TIMESTAMP('1900-01-01')) FROM {{ this }}
         )
     {% endif %}
 
@@ -51,7 +51,7 @@ cleaned_raw_staff AS (
         -- Nationality
         INITCAP(TRIM(nationality))                             AS nationality,
 
-        -- Boolean normalization (important 🔥)
+        -- Boolean normalization
         CASE
             WHEN LOWER(TRIM(is_active)) IN ('1','true','yes') THEN TRUE
             WHEN LOWER(TRIM(is_active)) IN ('0','false','no') THEN FALSE
@@ -70,7 +70,10 @@ cleaned_raw_staff AS (
             WHEN LOWER(TRIM(is_duplicate)) IN ('true','yes','1') THEN TRUE
             WHEN LOWER(TRIM(is_duplicate)) IN ('false','no','0') THEN FALSE
             ELSE NULL
-        END                                                    AS is_duplicate
+        END                                                    AS is_duplicate,
+
+        COALESCE(is_deleted, FALSE)                            AS is_deleted,
+        deleted_at
 
     FROM deduped_raw_staff
 
@@ -104,11 +107,15 @@ silver_staff AS (
         validation_status,
         is_duplicate,
 
-        -- Derived Column (interview highlight ⭐)
+        -- Derived Column
         CASE
             WHEN is_active = TRUE THEN 'ACTIVE'
             ELSE 'INACTIVE'
         END                                                   AS staff_status,
+
+        -- Soft delete tracking
+        is_deleted,
+        deleted_at,
 
         -- Audit
         CURRENT_TIMESTAMP()                                   AS silver_loaded_at
@@ -117,5 +124,24 @@ silver_staff AS (
 
 )
 
-SELECT *
-FROM silver_staff
+{% if is_incremental() %}
+, hard_deleted_in_bronze AS (
+
+    SELECT
+        t.* EXCEPT (is_deleted, deleted_at, silver_loaded_at),
+        TRUE                AS is_deleted,
+        CURRENT_TIMESTAMP() AS deleted_at,
+        CURRENT_TIMESTAMP() AS silver_loaded_at
+    FROM {{ this }} t
+    LEFT ANTI JOIN {{ ref('raw_staff') }} b
+        ON t.source_employee_id = b.source_employee_id
+    WHERE COALESCE(t.is_deleted, FALSE) = FALSE
+
+)
+{% endif %}
+
+SELECT * FROM silver_staff
+{% if is_incremental() %}
+UNION ALL
+SELECT * FROM hard_deleted_in_bronze
+{% endif %}

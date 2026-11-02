@@ -1,10 +1,17 @@
 [project]
 name = "qiddiya-dbt"
 version = "0.1.0"
-description = "Add your description here"
+description = "Qiddiya synthetic data generation (Databricks landing zone) and dbt Databricks medallion models"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+    # dbt Databricks project (dheeraj_qiddiya_dbt_databricks/)
     "dbt-core>=1.11.7",
     "dbt-databricks>=1.10.9",
+    # Synthetic data generation (_qiddiya_synthetic_data_generartion/)
+    "databricks-sql-connector>=4.2.5",
+    "faker>=30.0",
+    "numpy>=2.0",
+    "pandas>=2.3",
+    "python-dotenv>=1.0",
 ]

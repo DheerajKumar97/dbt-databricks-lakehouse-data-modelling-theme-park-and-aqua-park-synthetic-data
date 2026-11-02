@@ -35,6 +35,7 @@ WITH dim_staff AS (
         CURRENT_TIMESTAMP()                                      AS gold_loaded_at
 
     FROM {{ ref('silver_staff') }}
+    WHERE COALESCE(is_deleted, FALSE) = FALSE
 
 )
 

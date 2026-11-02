@@ -20,7 +20,8 @@ WITH silver_gate AS (
 
     SELECT *
     FROM {{ ref('silver_gate_events') }}
-    WHERE event_date IS NOT NULL
+    WHERE COALESCE(is_deleted, FALSE) = FALSE
+      AND event_date IS NOT NULL
 
 ),
 

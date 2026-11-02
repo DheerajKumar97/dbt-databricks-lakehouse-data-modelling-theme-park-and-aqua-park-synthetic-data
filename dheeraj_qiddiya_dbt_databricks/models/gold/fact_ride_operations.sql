@@ -20,7 +20,8 @@ WITH silver_rides AS (
 
     SELECT *
     FROM {{ ref('silver_ride_opeartions') }}
-    WHERE poll_date IS NOT NULL
+    WHERE COALESCE(is_deleted, FALSE) = FALSE
+      AND poll_date IS NOT NULL
 
 ),
 

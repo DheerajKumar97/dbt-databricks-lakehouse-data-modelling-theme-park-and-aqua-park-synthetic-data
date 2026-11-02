@@ -14,8 +14,8 @@ WITH bronze_raw_gate_events AS (
     FROM {{ ref('raw_gate_events') }}
 
     {% if is_incremental() %}
-        WHERE TRY_CAST(ingestion_timestamp AS TIMESTAMP) > (
-            SELECT MAX(silver_loaded_at) FROM {{ this }}
+        WHERE bronze_loaded_at > (
+            SELECT COALESCE(MAX(silver_loaded_at), TIMESTAMP('1900-01-01')) FROM {{ this }}
         )
     {% endif %}
 
@@ -67,11 +67,15 @@ cleaned_raw_gate_events AS (
             ELSE TRIM(g.rejection_reason)
         END                                                         AS rejection_reason,
 
-        -- ✅ customer_sk via JOIN — never rehash
+        -- customer_sk via JOIN
         c.customer_sk                                               AS customer_sk,
 
         -- Source timestamp
-        TRY_CAST(g.ingestion_timestamp AS TIMESTAMP)                AS source_ingested_at
+        TRY_CAST(g.ingestion_timestamp AS TIMESTAMP)                AS source_ingested_at,
+
+        -- Soft delete tracking from Bronze
+        COALESCE(g.is_deleted, FALSE)                               AS is_deleted,
+        g.deleted_at
 
     FROM deduped_raw_gate_events                    AS g
     LEFT JOIN {{ ref('silver_customers') }}         AS c
@@ -147,6 +151,10 @@ silver_gate_events AS (
 
         -- Lineage
         source_ingested_at,
+
+        -- Soft delete tracking
+        is_deleted,
+        deleted_at,
 
         -- Silver audit
         CURRENT_TIMESTAMP()                                         AS silver_loaded_at

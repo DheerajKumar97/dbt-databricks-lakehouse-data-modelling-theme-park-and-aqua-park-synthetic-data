@@ -1,6 +1,6 @@
 """
 ==========================================================================
-Qiddiya Synthetic Data Generator — Enterprise Landing Zone Layer (v4.1)
+Qiddiya Synthetic Data Generator — Enterprise Bronze Layer (v4.1)
 DATABRICKS SQL UPLOAD (databricks-sql-connector — no SQLAlchemy dialect)
 ==========================================================================
 """
