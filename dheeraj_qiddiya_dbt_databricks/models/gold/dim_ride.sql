@@ -26,6 +26,7 @@ WITH deduped_rides AS (
             ORDER BY poll_datetime DESC
         ) AS rn
     FROM {{ ref('silver_ride_opeartions') }}
+    WHERE COALESCE(is_deleted, FALSE) = FALSE
 
 ),
 

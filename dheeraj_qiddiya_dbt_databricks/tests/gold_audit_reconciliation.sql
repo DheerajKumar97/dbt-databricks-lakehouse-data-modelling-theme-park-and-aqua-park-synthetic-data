@@ -14,7 +14,8 @@ WITH reconciliation AS (
         'fact_transaction' AS fact_table,
         (SELECT COUNT(*) FROM {{ ref('fact_transaction') }})     AS gold_count,
         (SELECT COUNT(*) FROM {{ ref('silver_transactions') }}
-         WHERE transaction_date IS NOT NULL)                     AS silver_count
+         WHERE COALESCE(is_deleted, FALSE) = FALSE
+           AND transaction_date IS NOT NULL)                     AS silver_count
 
     UNION ALL
 
@@ -22,7 +23,8 @@ WITH reconciliation AS (
         'fact_gate_event',
         (SELECT COUNT(*) FROM {{ ref('fact_gate_event') }}),
         (SELECT COUNT(*) FROM {{ ref('silver_gate_events') }}
-         WHERE event_date IS NOT NULL)
+         WHERE COALESCE(is_deleted, FALSE) = FALSE
+           AND event_date IS NOT NULL)
 
     UNION ALL
 
@@ -30,14 +32,16 @@ WITH reconciliation AS (
         'fact_ride_operations',
         (SELECT COUNT(*) FROM {{ ref('fact_ride_operations') }}),
         (SELECT COUNT(*) FROM {{ ref('silver_ride_opeartions') }}
-         WHERE poll_date IS NOT NULL)
+         WHERE COALESCE(is_deleted, FALSE) = FALSE
+           AND poll_date IS NOT NULL)
 
     UNION ALL
 
     SELECT
         'fact_customer_feedback',
         (SELECT COUNT(*) FROM {{ ref('fact_customer_feedback') }}),
-        (SELECT COUNT(*) FROM {{ ref('silver_feedback') }})
+        (SELECT COUNT(*) FROM {{ ref('silver_feedback') }}
+         WHERE COALESCE(is_deleted, FALSE) = FALSE)
 
     UNION ALL
 
@@ -45,7 +49,8 @@ WITH reconciliation AS (
         'fact_weather_observation',
         (SELECT COUNT(*) FROM {{ ref('fact_weather_observation') }}),
         (SELECT COUNT(*) FROM {{ ref('silver_weather') }}
-         WHERE weather_date IS NOT NULL AND weather_code IS NOT NULL)
+         WHERE COALESCE(is_deleted, FALSE) = FALSE
+           AND weather_date IS NOT NULL AND weather_code IS NOT NULL)
 
 )
 

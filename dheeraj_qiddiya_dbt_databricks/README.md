@@ -1,15 +1,15 @@
-Welcome to your new dbt project!
+# dheeraj_qiddiya_dbt_databricks
 
-### Using the starter project
+dbt project for the Qiddiya Medallion data warehouse on Databricks:
+`edw_dev.landing_zone` (sources) → `bronze` → `silver` (incremental) → `gold` (star schema).
 
-Try running the following commands:
-- dbt run
-- dbt test
+- Profile: `dheeraj_qiddiya_dbt_databricks` (template: `tests/profiles_template.yml`)
+- Package: `dbt_utils` (run `dbt deps` once)
 
+```powershell
+uv run dbt deps
+uv run dbt debug
+uv run dbt build
+```
 
-### Resources:
-- Learn more about dbt [in the docs](https://docs.getdbt.com/docs/introduction)
-- Check out [Discourse](https://discourse.getdbt.com/) for commonly asked questions and answers
-- Join the [chat](https://community.getdbt.com/) on Slack for live discussions and support
-- Find [dbt events](https://events.getdbt.com) near you
-- Check out [the blog](https://blog.getdbt.com/) for the latest news on dbt's development and best practices
+See the root [README.md](../README.md) for full setup, credentials and troubleshooting.

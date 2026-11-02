@@ -15,40 +15,23 @@
 #}
 
 WITH distinct_weather AS (
-
     SELECT
         weather_code,
-        MAX(weather_description)    AS weather_description
+        MAX(weather_description) AS weather_description
     FROM {{ ref('silver_weather') }}
-    WHERE weather_code IS NOT NULL
+    WHERE COALESCE(is_deleted, FALSE) = FALSE
+      AND weather_code IS NOT NULL
+      AND weather_code <> ''
     GROUP BY weather_code
-
 ),
 
 dim_weather AS (
-
     SELECT
-
-        -- Surrogate Key (new — weather has no SK in silver)
-        REGEXP_REPLACE(
-            {{ dbt_utils.generate_surrogate_key(
-                ['weather_code']
-            ) }},
-            '^([0-9a-f]{8})([0-9a-f]{4})([0-9a-f]{4})([0-9a-f]{4})([0-9a-f]{12})$',
-            '$1-$2-$3-$4-$5'
-        )                                                        AS weather_key,
-
-        -- Natural Key
+        {{ uuid_surrogate_key(['weather_code']) }}  AS weather_key,
         weather_code,
-
-        -- Attributes
         weather_description,
-
-        -- Audit
-        CURRENT_TIMESTAMP()                                      AS gold_loaded_at
-
+        CURRENT_TIMESTAMP()                         AS gold_loaded_at
     FROM distinct_weather
-
 )
 
 SELECT * FROM dim_weather

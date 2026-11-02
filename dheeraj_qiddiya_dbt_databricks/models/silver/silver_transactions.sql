@@ -14,8 +14,8 @@ WITH bronze_raw_transactions AS (
     FROM {{ ref('raw_transactions') }}
 
     {% if is_incremental() %}
-        WHERE TRY_CAST(ingestion_timestamp AS TIMESTAMP) > (
-            SELECT MAX(silver_loaded_at) FROM {{ this }}
+        WHERE bronze_loaded_at > (
+            SELECT COALESCE(MAX(silver_loaded_at), TIMESTAMP('1900-01-01')) FROM {{ this }}
         )
     {% endif %}
 
@@ -95,7 +95,14 @@ cast_and_clean AS (
             ELSE NULL
         END                                                    AS is_duplicate,
 
-        source_region
+        source_region,
+
+        CASE
+            WHEN COALESCE(is_deleted, FALSE) = TRUE
+              OR UPPER(TRIM(cdc_operation)) = 'DELETE' THEN TRUE
+            ELSE FALSE
+        END                                                    AS is_deleted,
+        deleted_at
 
     FROM deduped_raw_transactions
 
@@ -167,11 +174,33 @@ silver_transactions AS (
         is_duplicate,
         source_region,
 
+        is_deleted,
+        deleted_at,
+
         CURRENT_TIMESTAMP()                                   AS silver_loaded_at
 
     FROM cast_and_clean
 
 )
 
-SELECT *
-FROM silver_transactions
+{% if is_incremental() %}
+, hard_deleted_in_bronze AS (
+
+    SELECT
+        t.* EXCEPT (is_deleted, deleted_at, silver_loaded_at),
+        TRUE                AS is_deleted,
+        CURRENT_TIMESTAMP() AS deleted_at,
+        CURRENT_TIMESTAMP() AS silver_loaded_at
+    FROM {{ this }} t
+    LEFT ANTI JOIN {{ ref('raw_transactions') }} b
+        ON t.source_transaction_id = b.source_transaction_id
+    WHERE COALESCE(t.is_deleted, FALSE) = FALSE
+
+)
+{% endif %}
+
+SELECT * FROM silver_transactions
+{% if is_incremental() %}
+UNION ALL
+SELECT * FROM hard_deleted_in_bronze
+{% endif %}

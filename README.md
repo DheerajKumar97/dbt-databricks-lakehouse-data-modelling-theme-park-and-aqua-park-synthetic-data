@@ -1,182 +1,239 @@
-# 🎢 Qiddiya Theme and Aqua Park Synthetic Data Modeling
+# Qiddiya Theme & Aqua Park – Synthetic Data + dbt Databricks
 
 [![Python](https://img.shields.io/badge/Python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![dbt](https://img.shields.io/badge/dbt-1.11.7+-orange.svg)](https://www.getdbt.com/)
 [![Databricks](https://img.shields.io/badge/Databricks-SQL-red.svg)](https://databricks.com/)
 
-A comprehensive, end-to-end data engineering solution that generates enterprise-grade synthetic data for a hypothetical theme park (Qiddiya Theme and Aqua Park), uploads it directly to a Databricks SQL Warehouse, and models it using a **Medallion Architecture** (Bronze ➔ Silver ➔ Gold) with **dbt (data build tool)**.
+An end-to-end data engineering project for a hypothetical theme park (Qiddiya Six Flags "SF" and Aqua Park "AQ"):
+
+1. **Synthetic data generation**: a Python script generates realistic, referentially intact raw data with controlled data-quality anomalies. It then uploads the data to a Databricks SQL Warehouse landing zone.
+2. **dbt Databricks project**: models the landing data into a **Medallion architecture** (Bronze → Silver → Gold star schema).
+
+The two components run **independently**. The landing-zone tables in Databricks are the only link between them.
 
 ---
 
-## 📖 Table of Contents
-- [Project Overview](#-project-overview)
-- [Key Features](#-key-features)
-- [Technology Stack](#-technology-stack)
-- [Architecture](#-architecture)
-  - [1. Data Generation Pipeline](#1-data-generation-pipeline)
-  - [2. Medallion Data Warehouse (dbt)](#2-medallion-data-warehouse-dbt)
-- [Database Schema (Gold Layer)](#-database-schema-gold-layer)
-- [Getting Started](#-getting-started)
-  - [Prerequisites](#prerequisites)
-  - [Installation](#installation)
-- [Usage Guide](#-usage-guide)
-  - [Step 1: Data Generation & Bronze Upload](#step-1-data-generation--bronze-upload)
-  - [Step 2: dbt Execution (Transformations)](#step-2-dbt-execution-transformations)
-- [Testing & Data Quality](#-testing--data-quality)
+## Table of Contents
+
+1. [Project Structure](#1-project-structure)
+2. [Python Environment Setup](#2-python-environment-setup)
+3. [Synthetic Data Generation](#3-synthetic-data-generation)
+4. [dbt Databricks Setup](#4-dbt-databricks-setup)
+5. [dbt Execution](#5-dbt-execution)
+6. [Data Model](#6-data-model)
+7. [Troubleshooting](#7-troubleshooting)
 
 ---
 
-## 🌟 Project Overview
+## 1. Project Structure
 
-This repository is split into two primary workflows:
-1. **Synthetic Data ETL Pipeline**: A robust Python script (`qiddiya_load_databricks.py`) utilizing Pandas and Faker to generate hundreds of thousands of realistic records (transactions, ride operations, weather, gate events, etc.). The script strictly enforces referential integrity, securely injects controlled data anomalies for testing, and streams the raw data into a Databricks Bronze layer.
-2. **dbt Databricks Modeling**: A full-fledged dbt project (`dheeraj_qiddiya_dbt_databricks`) that cleans, standardizes, and models the raw Bronze data into Silver (Cleansed) and Gold (Analytical / Star Schema) data layers tailored for BI reporting and analytics.
-
----
-
-## ✨ Key Features
-
-- **Massive Realistic Data Generation**: Simulates realistic theme park footprints including customers, staff, transactions, park gates, feedback, weather sensors, and SCADA ride metrics.
-- **100% Referential Integrity Engine**: Custom validation checks pre-upload to ensure no orphaned foreign keys across millions of scattered records.
-- **Smart Data Quality Testing**: Injects controlled data anomalies natively into the Bronze layer (missing values, malformed dates, dupe flags) to thoroughly test the dbt Silver layer cleansing pipeline.
-- **Chunked SQL Uploads**: Directly integrates with the `databricks-sql-connector` uploading thousands of rows sequentially for immediate ingestion capabilities.
-- **Medallion Architecture in dbt**:
-  - **Bronze**: Raw landing tables sourced from Python ingest.
-  - **Silver**: Deduped, cleansed, strongly-typed tables.
-  - **Gold**: Kimball Methodology Star Schema comprising strictly validated 8 Dimension tables and 5 Fact tables.
-
----
-
-## 🛠️ Technology Stack
-
-- **Language**: Python 3.11+
-- **Data Generator**: `pandas`, `numpy`, `Faker`, `uuid`
-- **Data Warehouse**: Databricks (Databricks SQL Warehouse)
-- **Database Driver**: `databricks-sql-connector`
-- **Transformation Engine**: `dbt-core`, `dbt-databricks`
-- **Package Management**: `pyproject.toml`, `uv` / `pip`
-
----
-
-## 🏗️ Architecture
-
-### 1. Data Generation Pipeline (`qiddiya_load_databricks.py`)
-Generates structured datasets corresponding to business events:
-- **Phase A (Master Data Pools)**: `Customers`, `Staff`, `Products`.
-- **Phase B (Transactional Entities)**: `Transactions`, `Gate Events`, `Ride Operations`, `Feedback`, `Weather`, `Master Data`. 
-*(Produces 9 `SF_` (Six Flags) datasets and mutates identically shaped 9 `AQ_` (Aqua Park) datasets)*
-
-### 2. Medallion Data Warehouse (dbt)
-Managed entirely inside `dheeraj_qiddiya_dbt_databricks/`.
-- **`models/bronze/`**: 1:1 view on top of the ingested RAW ingest data.
-- **`models/silver/`**: Handles CAST transformations, boolean normalizations, coalescing missing fields, schema evolution filters, and duplicate record deduplication.
-- **`models/gold/`**: Generates complex analytical views structured perfectly for immediate downstream usage.
-
----
-
-## 🗄️ Database Schema (Gold Layer)
-
-The finalized Gold layer features a highly optimized Star Schema layout:
-
-### Dimension Tables (8)
-1. `dim_customer` - Granular customer details, loyalty tiers, PII handling.
-2. `dim_date` - Dedicated temporal table for grouping logic.
-3. `dim_gate` - Park entry topologies and access points.
-4. `dim_park` - Site codes ("SF" vs "AQ").
-5. `dim_product` - Hierarchical categorization of POS purchasable metrics.
-6. `dim_ride` - Physical roller-coaster / attraction specs.
-7. `dim_staff` - Employee roles, active status, management mapping.
-8. `dim_weather` - Normalized atmospheric traits.
-
-### Fact Tables (5)
-1. `fact_customer_feedback` - NPS scores, textual complaint arrays, survey flags.
-2. `fact_gate_event` - Turnstile capacity entries and rejections.
-3. `fact_ride_operations` - Interval operational status from Ride SCADA.
-4. `fact_transaction` - POS financials (gross, net, discounts, VAT).
-5. `fact_weather_observation` - Temporal climate captures mapped to operating performance.
-
----
-
-## 🚀 Getting Started
-
-### Prerequisites
-- Python >= 3.11
-- A Databricks workspace with an active SQL Warehouse.
-- A Databricks Personal Access Token.
-- (Optional but Relevent) `uv` for ultra-fast python environment management.
-
-### Installation
-1. Clone the repository:
-   ```bash
-   git clone <repository-url>
-   cd qiddiya-data-sql-upload/src/qiddiya_dbt
-   ```
-
-2. Establish Python Environment & Dependencies:
-   ```bash
-   python -m venv .venv
-   source .venv/bin/activate  # (On Windows: .venv\Scripts\activate)
-   pip install -r requirements.txt
-   # OR using uv
-   # uv sync
-   ```
-
----
-
-## 🕹️ Usage Guide
-
-### Step 1: Data Generation & Bronze Upload
-You need to authenticate to Databricks securely utilizing an environment variable. 
-
-*On Linux/macOS:*
-```bash
-export DATABRICKS_TOKEN="your_dapi_databricks_token_here"
-python qiddiya_load_databricks.py
+```text
+qiddiya_dbt/
+├── _qiddiya_synthetic_data_generartion/
+│   ├── qiddiya_load_databricks.py   # Synthetic data generator + Databricks uploader
+│   └── .env                         # Local only (gitignored): DATABRICKS_TOKEN=...
+│
+├── dheeraj_qiddiya_dbt_databricks/  # dbt project
+│   ├── dbt_project.yml
+│   ├── packages.yml / package-lock.yml   # dbt_utils
+│   ├── macros/generate_schema_name.sql   # Uses bronze/silver/gold schema names as-is
+│   ├── models/
+│   │   ├── source/source.yaml       # edw_dev.landing_zone (18 raw tables)
+│   │   ├── bronze/                  # 9 models: SF + AQ union per entity
+│   │   ├── silver/                  # 8 incremental models: typed, cleansed, deduplicated
+│   │   └── gold/                    # 8 dimensions + 5 facts (star schema)
+│   ├── tests/                       # Singular data tests + profiles_template.yml
+│   ├── analyses/  seeds/  snapshots/
+│
+├── main.py                          # Launcher: `uv run main.py generate`
+├── pyproject.toml                   # Dependencies (primary)
+├── uv.lock                          # Locked dependency versions
+├── requirements.txt                 # pip fallback, exported from uv.lock
+├── .python-version                  # 3.11
+├── .gitignore
+└── README.md
 ```
 
-*On Windows (PowerShell):*
+---
+
+## 2. Python Environment Setup
+
+**Prerequisites:** Python 3.11, a Databricks workspace with a SQL Warehouse, and a Databricks Personal Access Token.
+
+### Option A: uv (recommended, primary)
+
 ```powershell
-$env:DATABRICKS_TOKEN="your_dapi_databricks_token_here"
-python qiddiya_load_databricks.py
+cd qiddiya-data-sql-upload\src\qiddiya_dbt
+uv sync                 # creates/updates .venv from uv.lock
 ```
 
-*What happens next?* The script outputs real-time metrics showing phase generations, anomaly injections, referential integrity tests, and will securely sequentially insert thousands of entries utilizing SQL `INSERT INTO` batches directly into the Databricks `bronze` schema.
+You can prefix commands with `uv run`, or activate the environment with `.venv\Scripts\activate` (Windows) / `source .venv/bin/activate` (Linux/macOS).
 
-### Step 2: dbt Execution (Transformations)
-Once the Bronze layer is fully populated, transition into the dbt project folder to run data model transformations.
+### Option B: pip
 
-1. Ensure your `~/.dbt/profiles.yml` is correctly configured identically to match `dheeraj_qiddiya_dbt_databricks`.
-2. Move to the dbt project directory:
-   ```bash
-   cd dheeraj_qiddiya_dbt_databricks
-   ```
-3. Test your connection:
-   ```bash
-   dbt debug
-   ```
-4. Build all pipeline transformation logic:
-   ```bash
-   dbt run
-   ```
+```powershell
+python -m venv .venv
+.venv\Scripts\activate
+pip install -r requirements.txt
+```
+
+### Dependencies (`pyproject.toml`)
+
+| Package | Used by |
+|---|---|
+| `dbt-core`, `dbt-databricks` | dbt project |
+| `databricks-sql-connector`, `pandas`, `numpy`, `faker`, `python-dotenv` | Synthetic data generator |
+
+After changing `pyproject.toml`, run `uv lock`. Then run `uv export --format requirements-txt --no-hashes --no-emit-project -o requirements.txt` to keep `requirements.txt` in sync.
 
 ---
 
-## 🧪 Testing & Data Quality
+## 3. Synthetic Data Generation
 
-Ensuring absolute fidelity is vital. We utilize 2 discrete testing levels:
+### What it does
 
-1. **Python Ingestion Integrity Validation** 
-   - Pre-deployment validation ensuring no missing lookup attributes (E.g. guaranteeing every `customer_id` present in `gate_events` exists in `customers`).
-2. **dbt Generic & Singular Tests**
-   - Automatically executed alongside the transform steps utilizing `dbt test`.
-   - Native verification for `unique` constraints, `not_null` assertions and relationship map checking at the warehouse compiler level.
-   - Core implementation of structural consistency audits (e.g. `gold_audit_reconciliation.sql`, `gold_late_arriving_dimensions.sql`).
+`_qiddiya_synthetic_data_generartion/qiddiya_load_databricks.py`:
 
-To execute warehouse validation:
+1. Generates SF master data (staff, customers, products) and transactional data (transactions, gate events, ride operations, feedback, weather, master data).
+2. Validates referential integrity, injects controlled anomalies (malformed timestamps, ~1% duplicates, inconsistent booleans) while protecting FK columns, then validates again.
+3. Derives the AQ dataset from a clean SF copy and repeats the anomaly injection and validation.
+4. Uploads **18 tables** (`sf_raw_*` and `aq_raw_*`) to `edw_dev.landing_zone`.
+
+> **Warning:** Each upload runs `DROP TABLE IF EXISTS` + `CREATE TABLE` on the target tables in `edw_dev.landing_zone`.
+
+The connection settings (`DATABRICKS_SERVER_HOSTNAME`, `DATABRICKS_HTTP_PATH`, `DATABRICKS_CATALOG`, `DATABRICKS_SCHEMA`) and row counts (`COUNTS`) are constants at the top of the script.
+
+### Credentials
+
+The script reads `DATABRICKS_TOKEN` from the environment. It also loads `_qiddiya_synthetic_data_generartion/.env` (gitignored) through `python-dotenv`:
+
+```dotenv
+DATABRICKS_TOKEN=<your-personal-access-token>
+```
+
+Or set it in the shell for the current session:
+
+```powershell
+$env:DATABRICKS_TOKEN = "<your-personal-access-token>"   # PowerShell
+```
+
 ```bash
-cd dheeraj_qiddiya_dbt_databricks
-dbt test
+export DATABRICKS_TOKEN="<your-personal-access-token>"   # bash
+```
+
+### Run
+
+```powershell
+uv run main.py generate
+```
+
+Equivalent direct invocation:
+
+```powershell
+uv run python _qiddiya_synthetic_data_generartion/qiddiya_load_databricks.py
 ```
 
 ---
-*Maintained and developed by [Dheeraj Kumar].*
+
+## 4. dbt Databricks Setup
+
+### Profile
+
+`dbt_project.yml` uses the profile **`dheeraj_qiddiya_dbt_databricks`**. dbt looks for `profiles.yml` in this order: the `--profiles-dir` argument, `DBT_PROFILES_DIR`, the current directory, then `~/.dbt/profiles.yml` (the default used by this project).
+
+The template is in `dheeraj_qiddiya_dbt_databricks/tests/profiles_template.yml`. Read the token from an environment variable rather than hardcoding it:
+
+```yaml
+dheeraj_qiddiya_dbt_databricks:
+  target: dev
+  outputs:
+    dev:
+      type: databricks
+      host: <workspace-host>.cloud.databricks.com
+      http_path: /sql/1.0/warehouses/<warehouse-id>
+      catalog: edw_dev
+      schema: default
+      threads: 1
+      token: "{{ env_var('DATABRICKS_TOKEN') }}"
+```
+
+All `profiles.yml` files are gitignored. Never commit a real token.
+
+### Catalog and schemas
+
+| Layer | Location | Materialization |
+|---|---|---|
+| Source | `edw_dev.landing_zone` | written by the generator |
+| Bronze | `edw_dev.bronze` | table |
+| Silver | `edw_dev.silver` | incremental (`on_schema_change: sync_all_columns`) |
+| Gold | `edw_dev.gold` | table |
+
+`macros/generate_schema_name.sql` makes dbt use `bronze` / `silver` / `gold` literally, without the default `<target_schema>_` prefix.
+
+---
+
+## 5. dbt Execution
+
+Run all dbt commands from the dbt project directory:
+
+```powershell
+cd dheeraj_qiddiya_dbt_databricks
+
+uv run dbt --version
+uv run dbt deps          # installs dbt_utils into dbt_packages/
+uv run dbt debug         # validates profile + Databricks connection
+uv run dbt parse
+uv run dbt compile
+```
+
+Commands that write to Databricks:
+
+```powershell
+uv run dbt run                         # all layers
+uv run dbt run --select bronze         # one layer (bronze | silver | gold)
+uv run dbt run --select silver_transactions --full-refresh
+uv run dbt test                        # schema + singular tests
+uv run dbt build                       # run + test in DAG order
+```
+
+Add `--profiles-dir <dir>` to use a `profiles.yml` from a location other than `~/.dbt`.
+
+### Recommended end-to-end order
+
+1. `uv run main.py generate` refreshes the landing zone.
+2. `cd dheeraj_qiddiya_dbt_databricks && uv run dbt build` builds Bronze → Silver → Gold and runs the tests.
+
+---
+
+## 6. Data Model
+
+**Bronze:** `raw_customers`, `raw_feedback`, `raw_gate_events`, `raw_master_data`, `raw_products`, `raw_ride_operations`, `raw_staff`, `raw_transactions`, `raw_weather`. Each one unions the SF and AQ landing tables and adds `source_region`.
+
+**Silver:** `silver_customers`, `silver_feedback`, `silver_gate_events`, `silver_products`, `silver_ride_opeartions`, `silver_staff`, `silver_transactions`, `silver_weather`. These handle casting, boolean normalization, deduplication and `dbt_utils` surrogate keys.
+
+**Gold (star schema):**
+
+| Dimensions | Facts |
+|---|---|
+| `dim_customer`, `dim_date`, `dim_gate`, `dim_park`, `dim_product`, `dim_ride`, `dim_staff`, `dim_weather` | `fact_customer_feedback`, `fact_gate_event`, `fact_ride_operations`, `fact_transaction`, `fact_weather_observation` |
+
+**Tests:** schema tests in `models/*/schema.yml`, plus singular tests in `tests/` (`gold_audit_reconciliation`, `gold_dim_park_count`, `gold_inactive_staff_in_facts`, `gold_late_arriving_dimensions`).
+
+---
+
+## 7. Troubleshooting
+
+| Symptom | Fix |
+|---|---|
+| `ModuleNotFoundError: No module named 'faker'` / `'dotenv'` | Run `uv sync` (or `pip install -r requirements.txt`) in the project root. |
+| `FATAL: DATABRICKS_TOKEN is not set` | Create `_qiddiya_synthetic_data_generartion/.env` or set `DATABRICKS_TOKEN` in the shell. |
+| `Could not find profile named 'dheeraj_qiddiya_dbt_databricks'` | Create `~/.dbt/profiles.yml` from the template, or pass `--profiles-dir`. |
+| `Env var required but not provided: 'DATABRICKS_TOKEN'` (dbt) | Your profile uses `env_var('DATABRICKS_TOKEN')`. Set it in the shell before running dbt. |
+| `dbt_utils` macro not found | Run `uv run dbt deps`. |
+| `dbt --version` hangs on a restricted network | It checks PyPI for updates. Set `DBT_VERSION_CHECK=false`. |
+| `CustomTopLevelKeyDeprecation` warning for `tests/profiles*.yml` | dbt parses YAML files in `tests/`. The warning is harmless. Moving profile files out of `tests/` removes it. |
+| `MissingArgumentsPropertyInGenericTestDeprecation` warnings | dbt 1.11 prefers generic-test arguments nested under `arguments:`. These are warnings only. |
+| Silver model schema mismatch after source changes | Re-run with `--full-refresh` for the affected incremental model. |
+
+---
+*Maintained and developed by Dheeraj Kumar.*

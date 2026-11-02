@@ -14,8 +14,8 @@ WITH bronze_raw_products AS (
     FROM {{ ref('raw_products') }}
 
     {% if is_incremental() %}
-        WHERE TRY_CAST(ingestion_timestamp AS TIMESTAMP) > (
-            SELECT MAX(silver_loaded_at) FROM {{ this }}
+        WHERE bronze_loaded_at > (
+            SELECT COALESCE(MAX(silver_loaded_at), TIMESTAMP('1900-01-01')) FROM {{ this }}
         )
     {% endif %}
 
@@ -58,7 +58,10 @@ cleaned_products AS (
             ELSE NULL
         END                                                    AS is_duplicate,
 
-        UPPER(TRIM(source_region))                             AS source_region
+        UPPER(TRIM(source_region))                             AS source_region,
+
+        COALESCE(is_deleted, FALSE)                            AS is_deleted,
+        deleted_at
 
     FROM deduplicated_products
 
@@ -103,11 +106,33 @@ silver_products AS (
         validation_status,
         is_duplicate,
 
+        is_deleted,
+        deleted_at,
+
         CURRENT_TIMESTAMP()                                    AS silver_loaded_at
 
     FROM cleaned_products
 
 )
 
-SELECT *
-FROM silver_products
+{% if is_incremental() %}
+, hard_deleted_in_bronze AS (
+
+    SELECT
+        t.* EXCEPT (is_deleted, deleted_at, silver_loaded_at),
+        TRUE                AS is_deleted,
+        CURRENT_TIMESTAMP() AS deleted_at,
+        CURRENT_TIMESTAMP() AS silver_loaded_at
+    FROM {{ this }} t
+    LEFT ANTI JOIN {{ ref('raw_products') }} b
+        ON t.product_code = b.product_code
+    WHERE COALESCE(t.is_deleted, FALSE) = FALSE
+
+)
+{% endif %}
+
+SELECT * FROM silver_products
+{% if is_incremental() %}
+UNION ALL
+SELECT * FROM hard_deleted_in_bronze
+{% endif %}

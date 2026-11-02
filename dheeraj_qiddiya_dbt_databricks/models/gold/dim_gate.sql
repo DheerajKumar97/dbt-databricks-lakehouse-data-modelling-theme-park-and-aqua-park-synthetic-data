@@ -22,6 +22,7 @@ WITH distinct_gates AS (
         MAX(zone_code)        AS zone_code,
         park_code
     FROM {{ ref('silver_gate_events') }}
+    WHERE COALESCE(is_deleted, FALSE) = FALSE
     GROUP BY gate_id, park_code
 
 ),

@@ -9,9 +9,9 @@
 {#
     dim_customer — Customer dimension
 
-    Sourced from silver_customers.
+    Sourced from silver_customers (active records only: is_deleted = FALSE).
     customer_key = silver customer_sk (deterministic UUID via dbt_utils).
-    Carries forward all SCD Type-1 attributes.
+    Carries forward all SCD Type-1 attributes without exposing is_deleted in Gold.
 #}
 
 WITH dim_customer AS (
@@ -59,6 +59,7 @@ WITH dim_customer AS (
         CURRENT_TIMESTAMP()                                      AS gold_loaded_at
 
     FROM {{ ref('silver_customers') }}
+    WHERE COALESCE(is_deleted, FALSE) = FALSE
 
 )
 

@@ -391,8 +391,11 @@ models:
 
   - name: fact_weather_observation
     description: >
-      Weather observation fact. Grain: one row per weather poll.
+      Weather observation fact. Grain: one row per park + poll timestamp (hourly).
       ALL INNER JOINs — strictest RI.
+    tests:
+      - dbt_utils.unique_combination_of_columns:      # proves the grain
+          combination_of_columns: [park_key, poll_datetime]
     columns:
       - name: weather_obs_key
         tests:

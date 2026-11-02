@@ -20,7 +20,8 @@ WITH silver_txn AS (
 
     SELECT *
     FROM {{ ref('silver_transactions') }}
-    WHERE transaction_date IS NOT NULL
+    WHERE COALESCE(is_deleted, FALSE) = FALSE
+      AND transaction_date IS NOT NULL
 
 ),
 

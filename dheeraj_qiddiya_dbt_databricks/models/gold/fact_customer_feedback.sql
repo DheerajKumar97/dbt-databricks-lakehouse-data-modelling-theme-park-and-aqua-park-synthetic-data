@@ -21,6 +21,7 @@ WITH silver_fb AS (
 
     SELECT *
     FROM {{ ref('silver_feedback') }}
+    WHERE COALESCE(is_deleted, FALSE) = FALSE
 
 ),
 
